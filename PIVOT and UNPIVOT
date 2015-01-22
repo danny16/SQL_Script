@@ -1,0 +1,12 @@
+SELECT *
+FROM #BookSales
+  PIVOT(COUNT(SalesYear)
+  FOR SalesYear IN([2013], [2014])
+  ) AS PivotSales;
+
+
+SELECT BookType, SalesYear, SalesTotal
+FROM #PivotSales
+  UNPIVOT
+  ( SalesTotal FOR SalesYear IN([2012], [2013], [2014])
+  ) AS UnpivotSales;
