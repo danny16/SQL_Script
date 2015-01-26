@@ -1,0 +1,32 @@
+/****This is a script to loop through every period between the periodstart and periodend.****/
+
+DECLARE @year numeric(4,0)
+DECLARE @month numeric(2,0)
+DECLARE @periodstart numeric(6,0) = 201406
+DECLARE @periodend numeric(6,0) = 201502
+SET @year = FLOOR(@periodstart/100)
+SET @month = @periodstart - 100* FLOOR(@periodstart/100)
+DECLARE @startdate datetime
+DECLARE @enddate datetime
+
+WHILE (@year*100 + @month) <= @periodend
+	BEGIN
+		WHILE @month <= 12 AND (@year*100 + @month) <= @periodend
+			 BEGIN
+				SET @startdate = rtrim(convert(char(2), @month)) + '/01/' + convert(char(4), @Year)
+				SET @EndDate = DateAdd(m,1,@StartDate)
+				SET @EndDate = DateAdd(s, -1, @EndDate)
+				SET @EndDate = convert(datetime, convert(char(10), @EndDate, 101) + ' 11:59 pm')
+
+				/****Add your codes here.*****/
+
+				PRINT CAST(@year AS varchar(4)) + ', ' + CAST(@month AS varchar(2)) + ', ' + CAST(@year*100 + @month AS varchar(6)) 
+				+ ', ' + CAST(@startdate AS varchar(19)) + ', ' + CAST(@EndDate AS varchar(19))
+
+				/****End of your codes****/
+
+				SET @month = @month + 1
+			 END
+		SET @year = @year + 1
+		SET @month = 1   --Reset the @month to 1 otherwise it equals to 12 and the inner loop won't execute any more.
+	END
