@@ -1,0 +1,13 @@
+declare @ssisstr varchar(8000), @packagename varchar(200),@servername varchar(100),@params varchar(8000)
+set @packagename = 'ImportItemFile'
+set @servername = 'myserver\sql2k5'
+set @params = '/set \package.variables[FileName].Value;"\"\\127.0.0.1\Common\SSIS\NewItem.xls\"" /set \package.variables[CreatedBy].Value;"\"Chirag\"" /set \package.variables[ContractDbConnectionString].Value;"\"Data Source=myserver\SQL2K5;User ID=sa;Password=sapass;Initial Catalog=Items;Provider=SQLNCLI.1;Persist Security Info=True;Auto Translate=False;\"" /set \package.variables[BatchID].Value;"\"1\"" /set \package.variables[SupplierID].Value;"\"22334\""'
+
+
+set @ssisstr = 'dtexec /sq ' + @packagename + ' /ser ' + @servername + ' '
+set @ssisstr = @ssisstr + @params
+--print @ssisstr 
+
+DECLARE @returncode int
+EXEC @returncode = xp_cmdshell @ssisstr
+select @returncode
