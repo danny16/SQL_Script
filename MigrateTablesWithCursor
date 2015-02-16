@@ -1,0 +1,63 @@
+DECLARE @table_catalog varchar(50)
+,@table_schema varchar(50)
+,@table_name varchar(100)
+,@column_name varchar(100)
+,@data_type varchar(50)
+,@sql varchar(max);
+DECLARE t_cursor cursor for
+SELECT 
+	DISTINCT TABLE_CATALOG, 
+	TABLE_SCHEMA, 
+	TABLE_NAME 
+FROM 
+	AP.INFORMATION_SCHEMA.COLUMNS
+	--WHERE DATA_TYPE = 'xml'
+
+OPEN t_cursor
+
+/***process each row****/
+
+WHILE 1 = 1
+BEGIN
+	FETCH NEXT FROM t_cursor
+	INTO @table_catalog,@table_schema, @table_name;
+	--PRINT @table_name
+		IF @@FETCH_STATUS <> 0  --No more record exists.
+			BEGIN
+				BREAK
+			END
+		SET @sql = 'SELECT ' --+@table_name
+		BEGIN
+			DECLARE c_cursor cursor for
+			SELECT COLUMN_NAME, DATA_TYPE FROM AP.INFORMATION_SCHEMA.COLUMNS
+			WHERE TABLE_NAME = @table_name;
+
+			OPEN c_cursor
+			WHILE 2 = 2
+				BEGIN
+					FETCH NEXT FROM c_cursor
+					INTO @column_name,@data_type;
+
+					IF @@FETCH_STATUS <> 0
+--Drop the last comma and new line after one table is done
+						BEGIN
+							SET @sql = LEFT(@sql, LEN(@sql) - 2) 
+						BREAK
+						END
+					SELECT @column_name = CASE @data_type WHEN 'xml' 
+					THEN 'CAST([' + @column_name + '] AS xml) AS [' + @column_name + '],'
+					ELSE ' [' + @column_name + '],' END;
+
+					SET @sql = @sql + @column_name + char(10)
+				END
+			CLOSE c_cursor
+			DEALLOCATE c_cursor
+			SET @sql = @sql + char(10) + 'INTO ' + @table_name + char(10) + 'FROM (' + REPLACE(@sql, ' XML', 'nvarchar(max)') + char(10) + 'FROM ' + @table_catalog + '.' + @table_schema + '.' + @table_name + ') T_B;'
+			--IF OBJECT_ID(@table_name) IS NULL
+			PRINT @sql
+			--EXEC (@sql)
+		END
+END
+
+CLOSE t_cursor
+DEALLOCATE t_cursor
