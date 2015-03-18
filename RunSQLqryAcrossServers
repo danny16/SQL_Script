@@ -1,0 +1,32 @@
+$OutputPath = "C:\Powershell\SQL Script\NO_DB_Permissions\output.txt";
+$cyclecount = 1
+
+try
+{
+
+foreach ($svr in get-content "C:\Powershell\serverlist.txt")
+{ 
+          "****SERVER NAME****	:	$($svr)" | out-file $OutputPath  -append
+        "----------------------------------------------------------------------" | out-file $OutputPath  -append
+ 
+         Write-Host "Processing Server: $($svr), Cycle : $($cyclecount)" -Fore Red 
+         Invoke-Sqlcmd -inputfile "C:\Powershell\SQL Script\NO_DB_Permissions\nodbpermissions.sql" -ServerInstance $svr  | Out-File -filepath $OutputPath -append
+        
+           
+         Write-Host "Processing completed on Server: $($svr)" -Fore Green;
+         $cyclecount += 1
+        
+}
+}
+catch
+      {
+                Write-Warning "Error processing command";
+                $error[0];
+                $Exception = $Error[0].Exception
+               
+      }
+
+finally
+  {
+   $ErrorActionPrefernce = $eap
+  }
