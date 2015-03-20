@@ -1,0 +1,21 @@
+declare @table table
+(
+[Paid Date] date
+)
+
+insert into @table
+values('20150102'),('20150512'),('20150830'),('20151231'),('20141230')
+
+;WITH Quarters AS (
+   SELECT Q = 'Q1', MonthBegin = 1, MonthEnd = 3 UNION
+   SELECT Q = 'Q2', MonthBegin = 4, MonthEnd = 6 UNION
+   SELECT Q = 'Q3', MonthBegin = 7, MonthEnd = 9 UNION
+   SELECT Q = 'Q4', MonthBegin = 10, MonthEnd = 12
+)
+SELECT
+   [paid date],[Quarter] = 'FSY'+CONVERT(VARCHAR(4), DATEPART(yyyy, CONVERT(DATETIME, [paid date]))) + '_' + q.Q
+FROM
+@table
+  INNER JOIN Quarters q ON
+      DATEPART(m, CONVERT(DATETIME, [paid date])) >= q.MonthBegin AND
+      DATEPART(m, CONVERT(DATETIME, [paid date])) <= q.MonthEnd;
