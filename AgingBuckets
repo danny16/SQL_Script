@@ -1,0 +1,93 @@
+create view view_Current_Receivables_Aging_Detail
+as
+ 
+-- ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~
+-- view_Current_Receivables_Aging_Detail
+-- Created May 1, 2012 by Victoria Yudin, Flexible Solutions Inc
+-- For updates see http://victoriayudin.com/gp-reports/
+-- Shows current AR aging in detail w/ hard-coded aging buckets
+-- Tables used:
+--     CM - RM00101 - Customer Master
+--     RM - RM20101 - Open Transactions
+-- Updated Aug 12, 2013 to add 0 to 30 days bucket
+-- Updated Sep 20, 2013 to add Last Payment Date
+-- ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~
+ 
+select
+CM.CUSTNMBR Customer_ID,
+CM.CUSTNAME Customer_Name,
+CM.PYMTRMID Customer_Terms,
+CM.CUSTCLAS Customer_Class,
+CM.PRCLEVEL Price_Level,
+case RM.RMDTYPAL
+  when 1 then 'Sale / Invoice'
+  when 3 then 'Debit Memo'
+  when 4 then 'Finance Charge'
+  when 5 then 'Service Repair'
+  when 6 then 'Warranty'
+  when 7 then 'Credit Memo'
+  when 8 then 'Return'
+  when 9 then 'Payment'
+  else 'Other'
+  end Document_Type,
+RM.DOCNUMBR Document_Number,
+RM.DOCDATE Document_Date,
+RM.DUEDATE Due_Date,
+S.LASTPYDT Last_Payment_Date,
+case
+  when RM.RMDTYPAL < 7 then RM.ORTRXAMT
+  else RM.ORTRXAMT * -1
+  end Document_Amount,
+case
+  when RM.RMDTYPAL < 7 then RM.CURTRXAM
+  else RM.CURTRXAM * -1
+  end Unapplied_Amount,
+case
+  when DATEDIFF(d, RM.DUEDATE, getdate()) <= 0
+     and RM.RMDTYPAL < 7 then RM.CURTRXAM
+  when DATEDIFF(d, RM.DOCDATE, getdate()) <= 0
+     and RM.RMDTYPAL > 6 then RM.CURTRXAM *-1
+  else 0
+  end [Current],
+case 
+  when DATEDIFF(d, RM.DUEDATE, getdate()) between 1 and 30
+     and RM.RMDTYPAL < 7 then RM.CURTRXAM
+  when DATEDIFF(d, RM.DOCDATE, getdate()) between 1 and 30
+     and RM.RMDTYPAL > 6 then RM.CURTRXAM * -1
+  else 0
+  end [0_to_30_Days],
+case
+  when DATEDIFF(d, RM.DUEDATE, getdate()) between 31 and 60
+     and RM.RMDTYPAL < 7 then RM.CURTRXAM
+  when DATEDIFF(d, RM.DOCDATE, getdate()) between 31 and 60
+     and RM.RMDTYPAL > 6 then RM.CURTRXAM * -1
+  else 0
+  end [31_to_60_Days],
+case
+  when DATEDIFF(d, RM.DUEDATE, getdate()) between 61 and 90
+     and RM.RMDTYPAL < 7 then RM.CURTRXAM
+  when DATEDIFF(d, RM.DOCDATE, getdate()) between 61 and 90
+     and RM.RMDTYPAL > 6 then RM.CURTRXAM * -1
+  else 0
+  end [61_to_90_Days],
+case
+  when DATEDIFF(d, RM.DUEDATE, getdate()) > 90
+     and RM.RMDTYPAL < 7 then RM.CURTRXAM
+  when DATEDIFF(d, RM.DOCDATE, getdate()) > 90
+     and RM.RMDTYPAL > 6 then RM.CURTRXAM *-1
+  else 0
+  end [91_and_Over]
+ 
+from RM20101 RM
+ 
+inner join RM00101 CM
+     on RM.CUSTNMBR = CM.CUSTNMBR
+ 
+left outer join RM00103 S
+     on RM.CUSTNMBR = S.CUSTNMBR
+ 
+where RM.VOIDSTTS = 0 and RM.CURTRXAM <> 0
+ 
+-- add permissions for DYNGRP
+GO
+grant select on view_Current_Receivables_Aging_Detail to DYNGRP
