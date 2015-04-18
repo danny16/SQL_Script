@@ -1,0 +1,29 @@
+DECLARE @range varchar(500) = ('1-11,23,45-47,33') 
+DECLARE @DimCodeValue varchar(50) = '33'
+DECLARE @included int
+
+DECLARE csr_compare CURSOR
+FOR
+SELECT LowRange,HighRange FROM
+(
+SELECT LEFT(Item,CHARINDEX('-',Item)-1) as LowRange,SUBSTRING(Item,CHARINDEX('-',Item)+1,50) as HighRange FROM (SELECT * FROM dbo.SplitParameters(@range,',')) a WHERE CHARINDEX('-',Item)> 0 
+UNION ALL
+SELECT Item as LowRange, Item as HighRange FROM (SELECT * FROM dbo.SplitParameters('1-11,23,45-47,33',',')) a WHERE CHARINDEX('-',Item)=0
+) a
+
+DECLARE @LowRange varchar(50), @HighRange varchar(50)
+OPEN csr_compare
+IF @@CURSOR_ROWS >0
+	BEGIN
+		FETCH NEXT FROM csr_compare INTO
+		@LowRange,
+		@HighRange
+		IF @DimCodeValue >= @LowRange AND @DimCodeValue <= @HighRange
+			SET @included = 1
+		ELSE 
+			SET @included = 0
+	END
+CLOSE csr_compare
+DEALLOCATE csr_compare
+
+PRINT @included
