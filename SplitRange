@@ -1,14 +1,25 @@
-DECLARE @range varchar(500) = ('30,45:47,33,00:11,60') 
-DECLARE @DimCodeValue varchar(50) = '999'
-DECLARE @included int
+/****** Object:  UserDefinedFunction [dbo].[fn_AssignRange]    Script Date: 04/18/2015 12:54:45 ******/
+SET ANSI_NULLS ON
+GO
 
+SET QUOTED_IDENTIFIER ON
+GO
+
+--DECLARE @rangestring varchar(500) = ('30,45:49,33,00:11,60') 
+--DECLARE @value varchar(50) = '47'
+
+CREATE FUNCTION [dbo].[fn_AssignRange](@rangestring varchar(50),@value varchar(50))
+RETURNS int
+AS
+BEGIN
+DECLARE @included int
 DECLARE csr_compare CURSOR
 FOR
 SELECT LowRange,HighRange FROM
 (
-SELECT LEFT(Item,CHARINDEX(':',Item)-1) as LowRange,SUBSTRING(Item,CHARINDEX(':',Item)+1,50) as HighRange FROM (SELECT * FROM dbo.SplitParameters(@range,',')) a WHERE CHARINDEX(':',Item)> 0 
+SELECT LEFT(Item,CHARINDEX(':',Item)-1) as LowRange,SUBSTRING(Item,CHARINDEX(':',Item)+1,50) as HighRange FROM (SELECT * FROM dbo.SplitParameters(@rangestring,',')) a WHERE CHARINDEX(':',Item)> 0 
 UNION ALL
-SELECT Item as LowRange, Item as HighRange FROM (SELECT * FROM dbo.SplitParameters(@range,',')) a WHERE CHARINDEX(':',Item)=0
+SELECT Item as LowRange, Item as HighRange FROM (SELECT * FROM dbo.SplitParameters(@rangestring,',')) a WHERE CHARINDEX(':',Item)=0
 ) a
 
 DECLARE @LowRange varchar(50), @HighRange varchar(50)
@@ -20,7 +31,7 @@ WHILE @@CURSOR_ROWS > 0
 			BEGIN
 				BREAK
 			END
-		IF @DimCodeValue >= @LowRange AND @DimCodeValue <= @HighRange
+		IF @value >= @LowRange AND @value <= @HighRange
 			BEGIN
 				SET @included = 1
 				BREAK
@@ -32,7 +43,12 @@ WHILE @@CURSOR_ROWS > 0
 CLOSE csr_compare
 DEALLOCATE csr_compare
 
-PRINT @included
-PRINT @DimCodeValue
-PRINT @LowRange
-PRINT @HighRange
+RETURN @included
+END
+--PRINT @included
+--PRINT @value
+--PRINT @LowRange
+--PRINT @HighRange
+GO
+
+
