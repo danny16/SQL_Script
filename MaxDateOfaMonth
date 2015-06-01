@@ -1,0 +1,11 @@
+SELECT
+TimePeriod
+FROM
+(
+SELECT ROW_NUMBER() OVER (PARTITION BY YEAR(t.TimePeriod) ORDER BY t.TimePeriod DESC) AS RowNum, YEAR(t.TimePeriod) as Year, t.TimePeriod
+FROM
+(SELECT DISTINCT DATEADD(DAY, x.balance_date-700000,'7/15/1917') as TimePeriod
+FROM dbo.glbal x
+WHERE MONTH(DATEADD(DAY, x.balance_date-700000,'7/15/1917')) = 6
+) t
+) t1 WHERE t1.RowNum = 1
