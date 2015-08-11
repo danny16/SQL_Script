@@ -1,0 +1,279 @@
+------------------------------------------------------------------
+--Build a table contains all periods and all subaccounts. 
+------------------------------------------------------------------
+
+DECLARE @scenario nvarchar(50) = 'PEB'
+DECLARE @rowcount nvarchar(50)
+DECLARE @dim3 int
+DECLARE @id int = 1
+DECLARE @dimtbl TABLE(id int, Dim3 int)
+
+INSERT INTO @dimtbl (id,Dim3)
+SELECT id, Dim3
+FROM (SELECT ROW_NUMBER() OVER (ORDER BY Dim3) as id, Dim3 FROM
+(SELECT DISTINCT Dim3 FROM f_Trans_GL WHERE Dim3 > 0) a) b
+--SELECT * FROM @dimtbl
+
+TRUNCATE TABLE f_Trans_GL_BalanceUpdate;
+
+WHILE @id <= 1000 --(SELECT MAX(id) FROM @dimtbl)
+	BEGIN
+		SET @dim3 = (SELECT Dim3 FROM @dimtbl WHERE id = @id)
+
+------------------------------------------------------------------
+--Generate a table contains all periods x accountstring combinations, with or without value1 data from GL summary module. 
+------------------------------------------------------------------
+TRUNCATE TABLE f_Trans_GL_BalanceUpdate_Staging;
+
+INSERT INTO f_Trans_GL_BalanceUpdate_Staging(
+	[TransactionID]
+	,[Scenario]
+	,[Entity]
+	,[Account]
+	,[HasLID]
+	,[Value1]
+	,[Value2]
+	,[Value3]
+	,[TimePeriod]
+	,[RowComment]
+	,[Source]
+	,[RuleID]
+	,[CreatedOn]
+	,[CreatedBy]
+	,[UpdatedOn]
+	,[UpdatedBy]
+	,[Dim3]
+	,[Category]
+	,[Dim2]
+	,[Dim1]
+	,[Dim0]
+	,[c_Variance]
+	,[c_BudgetAmount])
+
+SELECT
+	[TransactionID]
+	,d.[Scenario]
+	,d.[Entity]
+	,d.[Account]
+	,d.[HasLID]
+	,d.[Value1]
+	,d.[Value2]
+	,d.[Value3]
+	,d.[TimePeriod]
+	,CAST('GL Summary Current Balance' as nvarchar(50)) as [RowComment]
+	,d.[Source]
+	,d.[RuleID]
+	,d.[CreatedOn]
+	,d.[CreatedBy]
+	,d.[UpdatedOn]
+	,d.[UpdatedBy]
+	,d.[Dim3]
+	,d.[Category]
+	,d.[Dim2]
+	,d.[Dim1]
+	,d.[Dim0]
+	,d.[c_Variance]
+	,null as [c_BudgetAmount]
+FROM f_Trans_GL d WHERE Dim3 = @dim3 AND Scenario in (SELECT MemberId FROM d_Scenario WHERE Code in ('ACT','OBA'));
+
+MERGE INTO f_Trans_GL_BalanceUpdate_Staging as BU
+USING 
+(
+SELECT ROW_NUMBER() OVER(ORDER By TimePeriod) as RowId, Dim3 = @dim3,TimePeriod FROM (SELECT MAX(MemberId) as TimePeriod FROM d_Time WHERE MemberId > (SELECT MIN(TimePeriod) FROM f_Trans_GL WHERE Dim3 = @dim3 AND Scenario in (SELECT MemberId FROM d_Scenario WHERE Code in ('ACT','OBA'))) AND MemberId <= (SELECT MAX(TimePeriod) FROM f_Trans_GL WHERE Dim3 = @dim3 AND Scenario in (SELECT MemberId FROM d_Scenario WHERE Code in ('ACT','OBA'))) GROUP BY FLOOR(MemberId/100)) b
+) as TP
+ON BU.Dim3 = TP.Dim3 AND BU.TimePeriod = TP.TimePeriod
+WHEN NOT MATCHED
+THEN INSERT (Scenario, Dim3, TimePeriod)
+VALUES((SELECT MemberId FROM d_Scenario WHERE Code = @scenario), TP.Dim3, TP.TimePeriod);
+
+--SELECT * FROM f_Trans_GL_BalanceUpdate_Staging ORDER BY TimePeriod;
+--SELECT * FROM f_Trans_GL WHERE Dim3 = 1695 ORDER BY TimePeriod
+
+------------------Test Code/Message-----------------------------
+--SET @rowcount = CAST((SELECT COUNT(*) FROM f_Trans_GL_BalanceUpdate_Staging) as nvarchar(50))
+--PRINT 'Step 1: Generate table is completed at '+CAST(GETDATE() as nvarchar(50))+' and ' + @rowcount + ' rows have been inserted into the staging table.'
+------------------Test Code/Message-----------------------------
+
+
+------------------------------------------------------------------
+--Insert RowId for the dataset so a row-by-row update can be made.
+------------------------------------------------------------------
+MERGE INTO f_Trans_GL_BalanceUpdate_Staging as BUS
+USING (SELECT RowId, TimePeriod FROM (SELECT ROW_NUMBER() OVER (ORDER BY TimePeriod) as RowId, TimePeriod FROM f_Trans_GL_BalanceUpdate_Staging WHERE Dim3 = @dim3) a ) as RI
+ON (BUS.TimePeriod = RI.TimePeriod)
+WHEN MATCHED
+THEN UPDATE SET BUS.RowId = RI.RowId;
+
+------------------Test Code/Message-----------------------------
+--SET @rowcount = CAST((SELECT COUNT(*) FROM f_Trans_GL_BalanceUpdate_Staging) as nvarchar(50))
+--PRINT 'Step 3: Add RowId values is completed at '+CAST(GETDATE() as nvarchar(50))+' and ' + @rowcount + ' rows were left the staging table.'  
+------------------Test Code/Message-----------------------------
+
+
+------------------------------------------------------------------
+--Populate values to the records of period-subaccount combinations that have no acctivities.
+------------------------------------------------------------------
+
+DECLARE value1_cursor CURSOR
+FOR
+SELECT RowId
+	,Dim3 
+	,[Value1]
+	,[TimePeriod]
+FROM f_Trans_GL_BalanceUpdate_Staging
+ORDER BY RowId
+
+DECLARE
+	@var_RowId int, 
+	@var_dim3 int,
+	@var_value1 numeric(28,16),
+	@var_TimePeriod int,
+	@tranid int = 1
+
+OPEN value1_cursor
+
+		FETCH NEXT FROM value1_cursor INTO
+			@var_RowId, 
+			@var_Dim3,
+			@var_value1,
+			@var_TimePeriod
+
+WHILE 1= 1
+	BEGIN
+		FETCH NEXT FROM value1_cursor INTO
+			@var_RowId, 
+			@var_Dim3,
+			@var_value1,
+			@var_TimePeriod
+					
+		IF @@FETCH_STATUS <> 0
+			BEGIN
+				BREAK
+			END
+		ELSE
+			IF @var_value1 is not null
+				CONTINUE
+			ELSE
+				BEGIN
+					PRINT CAST(@var_rowid as nvarchar(50)) + '-' + CAST(@var_Dim3 as nvarchar(50)) + '-' +CAST(@var_TimePeriod as nvarchar(50));
+					UPDATE f_Trans_GL_BalanceUpdate_Staging
+					SET
+					Value1 = (SELECT Value1 FROM f_Trans_GL_BalanceUpdate_Staging WHERE RowId = @var_rowid - 1), 
+					TransactionID = (SELECT LTRIM(RTRIM(TransactionID)) as TransactionID FROM f_Trans_GL_BalanceUpdate_Staging WHERE RowId =  @var_rowid - 1),
+					Entity = (SELECT Entity  FROM f_Trans_GL_BalanceUpdate_Staging WHERE RowId =  @var_rowid - 1),
+					Account = (SELECT Account FROM f_Trans_GL_BalanceUpdate_Staging WHERE RowId =  @var_rowid - 1),
+					TimePeriod = @var_TimePeriod,
+					RowComment = (SELECT RowComment  FROM f_Trans_GL_BalanceUpdate_Staging WHERE RowId =  @var_rowid - 1),
+					Source = CAST('SSIS' as nvarchar(50)),
+					CreatedOn = (SELECT CreatedOn  FROM f_Trans_GL_BalanceUpdate_Staging WHERE RowId =  @var_rowid - 1),
+					CreatedBy = (SELECT CreatedBy  FROM f_Trans_GL_BalanceUpdate_Staging WHERE RowId =  @var_rowid - 1),
+					UpdatedOn = (SELECT UpdatedOn  FROM f_Trans_GL_BalanceUpdate_Staging WHERE RowId =  @var_rowid - 1),
+					UpdatedBy = (SELECT UpdatedBy  FROM f_Trans_GL_BalanceUpdate_Staging WHERE RowId =  @var_rowid - 1),
+					Dim3 = (SELECT Dim3 FROM f_Trans_GL_BalanceUpdate_Staging WHERE RowId =  @var_rowid - 1),
+					Category = (SELECT Category  FROM f_Trans_GL_BalanceUpdate_Staging WHERE RowId =  @var_rowid - 1),
+					Dim2 = (SELECT Dim2  FROM f_Trans_GL_BalanceUpdate_Staging WHERE RowId =  @var_rowid - 1),
+					Dim1 = (SELECT Dim1  FROM f_Trans_GL_BalanceUpdate_Staging WHERE RowId =  @var_rowid - 1),
+					Dim0 = (SELECT Dim0  FROM f_Trans_GL_BalanceUpdate_Staging WHERE RowId = @var_rowid - 1)
+					WHERE RowId = @var_RowId
+				END
+	END
+
+CLOSE value1_cursor;
+
+DEALLOCATE value1_cursor;
+
+
+------------------Test Code/Message-----------------------------
+--SET @rowcount = CAST((SELECT COUNT(*) FROM f_Trans_GL_BalanceUpdate_Staging) as nvarchar(50))
+--PRINT 'Step 4: Populate values is completed at '+CAST(GETDATE() as nvarchar(50))+' and ' + @rowcount + ' rows were left the staging table.'  
+------------------Test Code/Message-----------------------------
+
+
+--SELECT * FROM f_Trans_GL_BalanceUpdate_Staging ORDER BY RowId;
+
+------------------------------------------------------------------
+--Delete records that existing in the GL module in DW.
+------------------------------------------------------------------
+
+DELETE FROM f_Trans_GL_BalanceUpdate_Staging WHERE Scenario NOT IN (SELECT MemberId FROM d_Scenario WHERE Code in (@scenario));
+
+------------------Test Code/Message-----------------------------
+--SET @rowcount = CAST((SELECT COUNT(*) FROM f_Trans_GL_BalanceUpdate_Staging) as nvarchar(50))
+--PRINT 'Step 5: Delete existing records in GL is completed at '+CAST(GETDATE() as nvarchar(50))+' and ' + @rowcount + ' rows were left the staging table.'  
+------------------Test Code/Message-----------------------------
+
+------------------------------------------------------------------
+--Append RowId to the TransactionID to meet the unique key constraint of GL fact table.
+------------------------------------------------------------------
+
+UPDATE f_Trans_GL_BalanceUpdate_Staging
+SET 
+	TransactionID = LTRIM(RTRIM(TransactionID))+CAST(RowId as nvarchar(5)),
+	Value2 = CAST( 0 as numeric(28,16)),
+	Value3 = CAST( 0 as numeric(28,16)),
+	HasLID = 0;
+
+------------------Test Code/Message-----------------------------
+--SET @rowcount = CAST((SELECT COUNT(*) FROM f_Trans_GL_BalanceUpdate_Staging) as nvarchar(50))
+--PRINT 'Step 6: Update TransactionID is completed at '+CAST(GETDATE() as nvarchar(50))+' and ' + @rowcount + ' rows were left the staging table.'  
+------------------Test Code/Message-----------------------------
+
+
+INSERT INTO f_Trans_GL_BalanceUpdate(
+	RowId
+	,[TransactionID]
+	,[Scenario]
+	,[Entity]
+	,[Account]
+	,[HasLID]
+	,[Value1]
+	,[Value2]
+	,[Value3]
+	,[TimePeriod]
+	,[RowComment]
+	,[Source]
+	,[RuleID]
+	,[CreatedOn]
+	,[CreatedBy]
+	,[UpdatedOn]
+	,[UpdatedBy]
+	,[Dim3]
+	,[Category]
+	,[Dim2]
+	,[Dim1]
+	,[Dim0]
+	,[c_Variance]
+	,[c_BudgetAmount])
+
+SELECT
+	RowId
+	,[TransactionID]
+	,[Scenario]
+	,[Entity]
+	,[Account]
+	,[HasLID]
+	,[Value1]
+	,[Value2]
+	,[Value3]
+	,[TimePeriod]
+	,[RowComment]
+	,[Source]
+	,[RuleID]
+	,[CreatedOn]
+	,[CreatedBy]
+	,[UpdatedOn]
+	,[UpdatedBy]
+	,[Dim3]
+	,[Category]
+	,[Dim2]
+	,[Dim1]
+	,[Dim0]
+	,[c_Variance]
+	,[c_BudgetAmount]
+FROM f_Trans_GL_BalanceUpdate_Staging;
+
+SET @id = @id + 1
+
+END;
+
+SELECT * FROM f_Trans_GL_BalanceUpdate ORDER BY Dim3;
