@@ -1,0 +1,155 @@
+IF OBJECT_ID('f_Trans_GL_OBA') IS NOT NULL
+DROP TABLE f_Trans_GL_OBA
+CREATE TABLE f_Trans_GL_OBA (RowId int IDENTITY(1,1), Account int,Entity int,Dim0 int,Dim1 int, Dim2 int,Dim3 int, FYYear int, Value1 numeric(28,16));
+
+IF OBJECT_ID('f_Trans_GL_OBA_Staging') IS NOT NULL
+DROP TABLE f_Trans_GL_OBA_Staging
+CREATE TABLE f_Trans_GL_OBA_Staging (Account int, Entity int, Dim0 int,Dim1 int, Dim2 int, Dim3 int, FYSum numeric(28,16), Value1 numeric(28,16), TimePeriod int);
+
+DECLARE @id int
+DECLARE @idtbl TABLE(id int, Account int, Entity int, Dim0 int, Dim1 int, Dim2 int, Dim3 int)
+DECLARE @ObaPeriod TABLE (RowId int IDENTITY(1,1), Account int,Entity int,Dim0 int,Dim1 int, Dim2 int,Dim3 int, FYYear int, Value1 numeric(28,16))
+
+INSERT INTO @idtbl
+SELECT
+ROW_NUMBER() OVER(ORDER BY Account, Entity, Dim0,Dim1,Dim2,Dim3) as id
+,Account
+,Entity
+,Dim0
+,Dim1
+,Dim2
+,Dim3
+FROM
+(
+SELECT
+DISTINCT
+Account
+,Entity
+,Dim0
+,Dim1
+,Dim2
+,Dim3
+FROM f_Trans_GL
+WHERE Dim3 > 0
+) ID
+
+SET @id = 1
+WHILE @id <= (SELECT MAX(id) FROM @idtbl)
+	BEGIN
+
+		INSERT INTO @ObaPeriod (FYYear) 
+		SELECT DISTINCT FYYear FROM d_Time 
+		WHERE FYYear <= YEAR(GETDATE()) ORDER BY 1;
+
+		UPDATE @ObaPeriod
+		SET Account = (SELECT Account FROM @idtbl WHERE id = @id)
+		,Entity = (SELECT Entity FROM @idtbl WHERE id = @id)
+		,Dim0 = (SELECT Dim0 FROM @idtbl WHERE id = @id)
+		,Dim1 = (SELECT Dim1 FROM @idtbl WHERE id = @id)
+		,Dim2 = (SELECT Dim2 FROM @idtbl WHERE id = @id)
+		,Dim3 = (SELECT Dim3 FROM @idtbl WHERE id = @id);
+
+		INSERT INTO f_Trans_GL_OBA
+		(Account
+		,Entity
+		,Dim0
+		,Dim1
+		,Dim2
+		,Dim3
+		,FYYear
+		,Value1)
+
+		SELECT
+		Account
+		,Entity
+		,Dim0
+		,Dim1
+		,Dim2
+		,Dim3
+		,FYYear
+		,ISNULL(Value1, 0) as Value1
+		FROM
+		(
+		SELECT
+		op.Account
+		,op.Entity
+		,op.Dim0
+		,op.Dim1
+		,op.Dim2 
+		,op.Dim3
+		,op.FYYear
+		,gv.Value1
+		FROM
+		@ObaPeriod op
+		LEFT JOIN (
+		SELECT
+		Account
+		,gl.Entity
+		,Dim0
+		,Dim1
+		,Dim2 
+		,Dim3
+		,t.FYYear
+		,Value2-Value3 as Value1
+		FROM f_Trans_GL gl
+		INNER JOIN d_Time t on gl.TimePeriod = t.MemberId
+		WHERE Scenario in (SELECT MemberId FROM d_Scenario WHERE Code in ('ACT','AADJ'))
+		AND Category = (SELECT MemberId FROM d_Category WHERE Code = 'MAIN')
+		AND t.FYYear <= YEAR(GETDATE())
+		AND gl.Dim3 = (SELECT Dim3 FROM @idtbl WHERE id = @id)
+		) gv 
+		on gv.Dim3 = op.Dim3 AND gv.FYYear = op.FYYear
+		) s
+		ORDER BY Account,Entity	,Dim0,Dim1,Dim2,Dim3,FYYear;
+
+		INSERT INTO f_Trans_GL_OBA_Staging
+		(Account
+		,Entity
+		,Dim0
+		,Dim1
+		,Dim2
+		,Dim3
+		,TimePeriod
+		,FYSum
+		,Value1)
+
+	SELECT
+		x.Account
+		,x.Entity
+		,x.Dim0
+		,x.Dim1
+		,x.Dim2
+		,x.Dim3
+		,TimePeriod = (SELECT MAX(FYYear)*10000+701 FROM d_Time WHERE FYYear = x.FYYear) 
+		,SUM(y.Value1) as FYSum
+		,x.Value1
+	FROM 
+		(SELECT Account, Entity, Dim0, Dim1, Dim2, Dim3, FYYEAR, SUM(Value1) as Value1 
+		FROM f_Trans_GL_OBA
+		GROUP BY Account, Entity, Dim0, Dim1, Dim2, Dim3, FYYear
+		) x, 
+
+		(SELECT Account, Entity, Dim0, Dim1, Dim2, Dim3, FYYEAR, SUM(Value1) as Value1 
+		FROM f_Trans_GL_OBA
+		GROUP BY Account, Entity, Dim0, Dim1, Dim2, Dim3, FYYear
+		) y
+
+	WHERE x.FYYear >= y.FYYear
+	GROUP BY
+		x.Account
+		,x.Entity
+		,x.Dim0
+		,x.Dim1
+		,x.Dim2
+		,x.Dim3
+		,x.FYYear
+		,x.Value1
+
+		DELETE FROM @ObaPeriod;
+
+		TRUNCATE TABLE f_Trans_GL_OBA;
+
+		SET @id = @id +1 
+	END;
+
+	--SELECT  Account, Entity, Dim0, Dim1, Dim2, Dim3, TimePeriod, FYSum as Value1 FROM f_Trans_GL_OBA_Staging
