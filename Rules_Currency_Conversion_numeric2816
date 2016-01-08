@@ -1,0 +1,319 @@
+USE [BI360DW_2]
+GO
+/****** Object:  StoredProcedure [dbo].[rules_Currency_Translation_4x]    Script Date: 1/8/2016 1:15:11 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+
+	/*
+	Created By : Solver               Created On : 12/17/2012
+	Purpose : Currency rule designed for US GAAP
+	**********************************************************************************************************************
+	Modified By :   Solver
+	Date :  7/30/2013
+	Purpose of Modification : 	Added statement to ignore STAT accounts.  Also added method to include the comment field
+	---------------------------------------------------------------------------------------------------------------------
+	Modified By :   Solver
+	Date :  5/15/2014
+	Purpose of Modification : 	Updated fields for DW 4.0 and newer
+
+	Modified By :   Solver
+	Date :  10/13/2014
+	Purpose of Modification : 	Edited for Case Sensitive DBs
+
+	**********************************************************************************************************************
+	*/
+
+	ALTER PROCEDURE [dbo].[rules_Currency_Translation_4x](
+		@Entity nvarchar(1000),
+		@Scenario nvarchar(1000),
+		@Category nvarchar(1000),
+		@CurrencyDest nvarchar(1000),
+		@Period nvarchar(1000)
+	) AS BEGIN
+
+		SET NOCOUNT ON;
+
+			DECLARE @vEntity nvarchar(MAX),
+				@vScenario nvarchar(1000),
+				@vCategory nvarchar(1000),
+				@vCurrencyDest nvarchar(1000),
+				@vPeriod nvarchar(MAX),
+				@EntityId varchar(20), 
+				@ScenarioId varchar(20),
+				@CategoryId varchar(20),
+				@CategoryDestId varchar(20),
+				@CurrencyDestId varchar(20),
+				@PeriodId varchar(20),
+				@RateTypeAVG varchar(20),
+				@RateTypeCLS varchar(20),
+				@RuleID varchar(25),
+				@EntityCurrency varchar(10),
+
+				@AttributeList nvarchar(MAX),
+				@AttributeListSelect nvarchar(MAX),
+				@AttributeListInsert nvarchar(MAX),
+				@DimList nvarchar(MAX),
+				@DimListSort nvarchar(MAX),
+				@DimListFact nvarchar(MAX),
+				@SQL nvarchar(MAX)
+
+			SET @AttributeList = ''
+			SET @AttributeListSelect = ''
+			SET @AttributeListInsert = ''
+			SET @DimList = ''
+			SET @DimListSort = ''
+			SET @DimListFact = ''
+
+			/*Remove quotes created by the BI360DWM*/
+			SET @Entity			= REPLACE(@Entity, '''','' )
+			SET @Scenario		= REPLACE(@Scenario, '''','' )
+			SET @Category		= REPLACE(@Category, '''','' )
+			SET @CurrencyDest	= REPLACE(@CurrencyDest, '''','' )
+			SET @Period			= REPLACE(@Period, '''','' )
+			
+			/* Set constants*/
+			SELECT @DimList = @DimList + 'Fact'  +'.'+Field + ' AS '+Field+' , ' FROM DimLabel WHERE Module = 'GL' AND InUse = 1 AND Field NOT IN ('Account','Category','Currency','Entity','Scenario','TimePeriod')
+			SELECT @DimListSort = @DimListSort + 'Fact'  +'.'+Field + ' , ' FROM DimLabel WHERE Module = 'GL' AND InUse = 1 AND Field NOT IN ('Account','Category','Currency','Entity','Scenario','TimePeriod')
+			SELECT @AttributeList = @AttributeList + 'MIN(Fact'  +'.'+Field  + ') AS '+Field+' , '  FROM ModuleAttribute WHERE Module = 'GL' AND InUse = 1 AND Field NOT IN ('Value1','Value2')
+			SELECT @AttributeListSelect = @AttributeListSelect + 'MIN('+Field + ') , ' FROM ModuleAttribute WHERE Module = 'GL' AND InUse = 1 AND Field NOT IN ('Value1','Value2','RowComment')
+			SELECT @AttributeListInsert = @AttributeListInsert + Field  +', ' FROM ModuleAttribute WHERE Module = 'GL' AND InUse = 1 AND Field NOT IN ('Value1','Value2','RowComment')
+
+			SET  @DimListSort = Substring(@DimListSort,1,len(@DimListSort)-1)   -- Remove comma at end
+			SET  @DimListFact = REPLACE(@DimListSort,'Fact.', '')
+
+			/*Set the Business RuleId*/
+			SET @RuleID = ISNULL((SELECT RuleID FROM BusinessRules WHERE RuleName = 'Currency_Translation_4x'),0)
+
+			/*Split parameters*/
+			DECLARE varList CURSOR  FOR
+				SELECT LTRIM(a.Item) AS entity,  LTRIM(b.Item) AS scenario, LTRIM(c.Item) AS category, LTRIM(d.Item) AS currency, LTRIM(e.Item) AS Period
+				FROM   dbo.[SplitParameters](@Entity, ',') a
+				CROSS JOIN dbo.[SplitParameters](@Scenario, ',') b
+				CROSS JOIN dbo.[SplitParameters](@Category, ',') c
+				CROSS JOIN dbo.[SplitParameters](@CurrencyDest, ',') d
+				CROSS JOIN dbo.[SplitParameters](@Period, ',') e
+
+			OPEN varList
+			FETCH NEXT FROM varList INTO  @vEntity, @vScenario, @vCategory, @vCurrencyDest, @vPeriod
+			WHILE @@FETCH_STATUS = 0 BEGIN
+
+				/* This section will convert data for local e.g. USD to USD to create YTD transactions.*/
+				SET @vCurrencyDest =  CASE WHEN  @vCurrencyDest = 'local' THEN (SELECT dc.Code FROM d_Currency dc JOIN d_Entity de ON de.CurrencyCode = dc.Code WHERE de.Code = @vEntity)
+				ELSE @vCurrencyDest
+				END
+
+ /***********************************************************************************************************************************
+  *** RUN TRANSLATION
+  ***********************************************************************************************************************************/
+			   /*Add FX Category to the d_Category table*/
+
+			INSERT d_Category (Code,Description)
+			SELECT 'FX'+@vCategory, 'Currency Translation for ' + @vCategory
+					WHERE  NOT EXISTS (SELECT Code FROM d_Category cat  WHERE cat.Code = 'FX'+@vCategory) AND @vCategory NOT LIKE 'FX%'
+
+
+			    /*Get MemberId's from codes */
+				SET @EntityId			= (SELECT CAST(MemberId AS varchar(20)) FROM d_Entity WHERE  Code = LTRIM(RTRIM(@vEntity)))
+				SET @ScenarioId			= (SELECT CAST(MemberId AS varchar(20)) FROM d_Scenario WHERE Code = @vScenario)
+				SET @CategoryDestId		= (SELECT CAST(MemberId AS varchar(20)) FROM d_Category WHERE Code = 'FX'+@vCategory)
+				SET @CategoryId			= (SELECT CAST(MemberId AS varchar(20)) FROM d_Category WHERE Code = +@vCategory)
+				SET @CurrencyDestId		= (SELECT CAST(MemberId AS varchar(20)) FROM d_Currency WHERE Code = @vCurrencyDest)
+				SET @PeriodId			= (SELECT TOP 1 CAST(MemberId AS varchar(20)) FROM d_Time WHERE FYPeriod = CAST(@vPeriod AS Int))
+				SET @RateTypeAVG		= (SELECT CAST(MemberId AS varchar(20)) FROM t_FXRateType WHERE Code = 'AVG')
+				SET @RateTypeCLS		= (SELECT CAST(MemberId AS varchar(20)) FROM t_FXRateType WHERE Code = 'CLS')
+				SET @EntityCurrency		= (CASE WHEN  @CurrencyDestId = (SELECT CurrencyCode FROM d_Entity WHERE MemberId = @EntityId) THEN '''FC''' ELSE '''FX''' END)
+
+				/*Delete existing FX transactions from the database*/
+				DELETE Fact FROM f_Trans_GL AS Fact
+					 JOIN d_Time on d_Time.MemberId = Fact.TimePeriod
+							WHERE Fact.Scenario = @ScenarioId AND Fact.Entity = @EntityId  AND Fact.Category = @CategoryDestId  AND Fact.Currency = @CurrencyDestId
+								AND d_Time.FYPeriod = @vPeriod
+
+				/*Delete existing Minority and Interco transactions that fall between the selected periods.*/
+				Delete fact from f_Trans_Gl as Fact
+					JOIN d_Time on d_Time.MemberId = Fact.TimePeriod
+							WHERE d_Time.FYPeriod = @vPeriod AND RuleID in (select RuleId from BusinessRules where RuleName in ('BI360_MinorityElim','BI360_Interco_Elim_Trans'))
+
+				/* 
+				Select all accounts by period (Month)
+				Monthly activity calculations for Value1
+				*/
+				
+				SET @SQL = ''
+				SET @SQL = 'SELECT ' + CHAR(13) +
+						' ''Period'' AS [Period],' + CHAR(13) +
+						'Fact.Scenario AS [Scenario], ' + CHAR(13) +
+						'DT.FYPeriod AS [FYPeriod], ' + CHAR(13) +
+						'MIN(Fact.TimePeriod) AS [TimePeriod], ' + CHAR(13) +
+						'Fact.Entity AS [Entity], ' + CHAR(13) +
+						'Fact.Category AS [Category], ' + CHAR(13) +
+						'Fact.Currency AS [Currency],' + CHAR(13) +
+						 @CurrencyDestId+ ' AS [CurrencyDest], ' + CHAR(13) +
+						'Fact.Account AS [Account], ' + CHAR(13) +
+						 @DimList + CHAR(13) +   --Dynamic SQL Dimensions
+						 @AttributeList + CHAR(13) + --Dynamic SQL for Attributes
+						'SUM(Fact.Value1) AS [Value1] , ' + CHAR(13) +
+						'SUM(Fact.Value2) AS [Value2], ' + CHAR(13) +
+						'AC.AccountType AS [AccountType], ' + CHAR(13) +
+						'RateRule.RateType AS [RateType], ' + CHAR(13) +
+						'MIN(SourceRate.CalculatedRate) AS [SourceRate], ' + CHAR(13) +
+						'MIN(DestRate.CalculatedRate) AS [DestRate], ' + CHAR(13) +
+						'MIN(SourceRate.CalculatedRate) /MIN(DestRate.CalculatedRate) AS [CalcRate], ' + CHAR(13) +
+					    'CAST((SUM(Value1) * (MIN(SourceRate.CalculatedRate)) / MIN(DestRate.CalculatedRate)) AS Numeric(28,16)) AS [CalcValue1], ' + CHAR(13) +
+						'CAST(0 AS Numeric(28,16)) AS [CalcValue2]  ' + CHAR(13) +
+
+				'INTO #CurrencyStaging    ' + CHAR(13) + -- Temp table
+				'FROM f_Trans_GL Fact (NOLOCK) ' + CHAR(13) +
+					' JOIN d_Time DT ON DT.MemberId = Fact.TimePeriod ' + CHAR(13) +
+					' JOIN d_Account AC ON AC.MemberId = Fact.Account ' + CHAR(13) +
+					' JOIN t_FXRateTypeRule RateRule ON RateRule.AccountType =  AC.AccountType ' + CHAR(13) +
+					' JOIN t_FXMonthlyCalculated SourceRate ON SourceRate.Currency = Fact.Currency ' + CHAR(13) +
+					' JOIN t_FXMonthlyCalculated DestRate ON SourceRate.Currency = Fact.Currency ' + CHAR(13) +
+
+				'WHERE ' + CHAR(13) +
+					'	DT.MemberId				= Fact.TimePeriod	AND ' + CHAR(13) +
+					'	SourceRate.Month		= DT.FYPeriod		AND ' + CHAR(13) +
+					'	SourceRate.RateType		= RateRule.RateType AND ' + CHAR(13) +
+					'	SourceRate.Currency		= Fact.Currency		AND ' + CHAR(13) +
+
+						/*If multi-entity rate type is enabled check if there is a rate for the entity.  If rate for entity use it, otherwise use the default rate.*/
+					'	SourceRate.Entity =  CASE WHEN (SELECT COUNT(Month) FROM t_FXMonthlyCalculated WHERE Entity = Fact.Entity AND RateType = SourceRate.RateType  AND  Currency = SourceRate.Currency ' + CHAR(13) +
+					'					AND  Month = DT.FYPeriod+0) = 1 THEN Fact.Entity ELSE -1 END  AND ' + CHAR(13) +
+
+					'	DestRate.Month		= DT.FYPeriod		AND ' + CHAR(13) +
+					'	DestRate.RateType		= RateRule.RateType AND ' + CHAR(13) +
+					'	DestRate.Currency		= '+ @CurrencyDestId+ '	AND ' + CHAR(13) +
+						
+						/*If multi-entity rate type is enabled check if there is a rate for the entity.  If rate for entity use it, otherwise use the default rate.*/
+					'	DestRate.Entity =  CASE WHEN (SELECT COUNT(Month) FROM t_FXMonthlyCalculated WHERE Entity = Fact.Entity AND RateType = DestRate.RateType  AND  Currency = DestRate.Currency ' + CHAR(13) +
+					'					AND  Month = DT.FYPeriod+0) = 1 THEN Fact.Entity ELSE -1 END  ' + CHAR(13) +
+					'		AND DT.FYPeriod		= '+ @vPeriod  + CHAR(13) +
+					'		AND Fact.Scenario	= '+ @ScenarioId  + CHAR(13) +
+					'		AND Fact.Entity		= '+ @EntityId	 + CHAR(13) +
+					'		AND Fact.Account 	= AC.MemberId ' + CHAR(13) +
+					'		AND AC.AccountType = RateRule.AccountType ' + CHAR(13) +
+					'		AND RateRule.Scenario = '+ @ScenarioId  + CHAR(13) +
+					'		AND Fact.Category = '+ @CategoryId + CHAR(13) +
+					'		AND	LEFT('''+@vCategory+''',2) != ''FX'' ' + CHAR(13) +
+					'		GROUP BY Fact.Scenario, DT.FYPeriod, Fact.Category,Fact.Entity,Fact.Account,Fact.Currency,AC.AccountType,RateRule.RateType, ' + @DimListSort
+
+
+			/*********************************************************************
+				- Select all accounts by period (Month)
+				- YTD calculations for Value2
+				- This will calculate all accounts at the CLS rate
+			*********************************************************************/
+
+	SET @SQL = @SQL +  CHAR(13) +
+		 ' INSERT INTO  #CurrencyStaging  '  + CHAR(13) + /*Temp table*/
+			   ' SELECT ''YTD'' , '  + CHAR(13) +
+					  '	Fact.Scenario , '  + CHAR(13) +
+						@vPeriod +','  + CHAR(13) +
+					  ' MIN(Fact.TimePeriod) , '  + CHAR(13) +
+					  ' Fact.Entity, '  + CHAR(13) +
+					  ' Fact.Category, '  + CHAR(13) +
+					  ' Fact.Currency, '  + CHAR(13) +
+						@CurrencyDestId +', '  + CHAR(13) +
+					  ' Fact.Account, '  + CHAR(13) +
+						@DimList  + CHAR(13) +  /*Dynamic SQL Dimensions*/
+						@AttributeList + CHAR(13) +	 /*Dynamic SQL for Attributes*/
+					  ' SUM(Fact.Value1) , '+ CHAR(13) +
+					  ' SUM(Fact.Value2) , '+ CHAR(13) +
+					  ' AC.AccountType , '+ CHAR(13) +
+					  ' RateRule.RateType , '+ CHAR(13) +
+					  ' MIN(SourceRate.CalculatedRate)  , '+ CHAR(13) +
+					  ' MIN(DestRate.CalculatedRate) , '+ CHAR(13) +
+					  ' MIN(SourceRate.CalculatedRate) /MIN(DestRate.CalculatedRate) , '+ CHAR(13) +
+					  ' CAST(0 AS Numeric(28,16)) AS Value1Calculated , '+ CHAR(13) +
+					  ' CAST((SUM(Value1) * (MIN(SourceRate.CalculatedRate)) / MIN(DestRate.CalculatedRate)) AS Numeric(28,16))   '+ CHAR(13) +
+
+						' FROM f_Trans_GL Fact (NOLOCK) '+ CHAR(13) +
+							' JOIN d_Time DT ON DT.MemberId = Fact.TimePeriod '+ CHAR(13) +
+							' JOIN d_Account AC ON AC.MemberId = Fact.Account '+ CHAR(13) +
+							' JOIN t_FXRateTypeRule RateRule ON RateRule.AccountType =  AC.AccountType '+ CHAR(13) +
+							' JOIN t_FXMonthlyCalculated SourceRate ON SourceRate.Currency = Fact.Currency '+ CHAR(13) +
+							' JOIN t_FXMonthlyCalculated DestRate ON SourceRate.Currency = Fact.Currency ' + CHAR(13) +
+
+				' WHERE '+ CHAR(13) +
+						' DT.MemberId				= Fact.TimePeriod	AND '+ CHAR(13) +
+						' SourceRate.Month			= '+ @vPeriod +  ' AND '+ CHAR(13) +
+			    		' SourceRate.RateType		= (SELECT CASE WHEN RateRule.RateType = '+ @RateTypeAVG + ' THEN '+ @RateTypeCLS +' ELSE RateRule.RateType END) AND '+ CHAR(13) +
+						' SourceRate.Currency		= Fact.Currency		AND '+ CHAR(13) +
+
+						/*If multi-entity rate type is enabled check if there is a rate for the entity.  If rate for entity use it, otherwise use the default rate.*/
+						' SourceRate.Entity =  CASE WHEN (SELECT COUNT(Month) FROM t_FXMonthlyCalculated WHERE Entity = Fact.Entity AND RateType = SourceRate.RateType  AND  Currency = SourceRate.Currency '+ CHAR(13) +
+										' AND  Month = ' + LEFT(@PeriodId,6)+') = 1 THEN Fact.Entity ELSE -1 END  AND '+ CHAR(13) +
+
+						' DestRate.Month		= '+ @vPeriod +  ' AND '+ CHAR(13) +
+						' DestRate.RateType		= (SELECT CASE WHEN RateRule.RateType ='+ @RateTypeAVG +' THEN ' + @RateTypeCLS + ' ELSE RateRule.RateType END) 	AND		'+ CHAR(13) +
+						' DestRate.Currency		= '+ @CurrencyDestId +'	AND '+ CHAR(13) +
+						
+						/*If multi-entity rate type is enabled check if there is a rate for the entity.  If rate for entity use it, otherwise use the default rate.*/
+						' DestRate.Entity =  CASE WHEN (SELECT COUNT(Month) FROM t_FXMonthlyCalculated WHERE Entity = Fact.Entity AND RateType = DestRate.RateType  AND  Currency = DestRate.Currency '+ CHAR(13) +
+										' AND  Month = ' + LEFT(@PeriodId,6)+') = 1 THEN Fact.Entity ELSE -1 END ' + CHAR(13) +
+
+					' AND DT.FYPeriod BETWEEN  LEFT('+@vPeriod+',4)+''01'' AND '+@vPeriod  + CHAR(13) +
+					' AND Fact.Scenario		= ' + @ScenarioId  + CHAR(13) +
+					' AND Fact.Entity		= ' + @EntityId	+ CHAR(13) +
+					' AND Fact.Account		=     AC.MemberId '+ CHAR(13) +
+					' AND AC.AccountType	=     RateRule.AccountType	' + CHAR(13) +
+					' AND RateRule.Scenario = ' + @ScenarioId + CHAR(13) +
+					' AND Fact.Category		= ' + @CategoryId  + CHAR(13) +
+					' AND LEFT('''+@vCategory+''',2) != ''FX'' ' + CHAR(13) +
+					'		GROUP BY Fact.Scenario, Fact.Category,Fact.Entity,Fact.Account,Fact.Currency,AC.AccountType,RateRule.RateType, ' + @DimListSort
+
+
+			/********************************************************************
+			   - Inset transactions into Fact table
+				 --Note: if additional dimensions, values or UDF fields are added
+						 above, this section will need to be updated as well.
+			*********************************************************************/
+		SET @SQL = @SQL +  CHAR(13) +
+			/*Create the FX Category if it does not exist. This will only create codes that do not start with FX*/
+
+			'INSERT INTO f_Trans_GL (RowComment, Scenario, TimePeriod, Category, Entity, Account, Currency, ' +  @DimListFact  +','+ @AttributeListInsert + 'Value1,Value2,CreatedOn,CreatedBy,UpdatedOn,UpdatedBy,RuleID) '+ CHAR(13) +
+
+					' SELECT	 '+ CHAR(13) +
+	  					 @EntityCurrency + ',' +CHAR(13) +
+						' MIN(Scenario), '+ CHAR(13) +
+						'(SELECT MIN(MemberId) FROM d_Time dt WHERE dt.FYPeriod = #CurrencyStaging.FYPeriod), ' + CHAR(13) + --Get first day of fiscal period
+						  @CategoryDestId + ', ' + CHAR(13) +
+						' MIN(Entity), ' + CHAR(13) +
+						' MIN(Account), ' + CHAR(13) +
+						' MIN(CurrencyDest), '  + CHAR(13) +
+					   	  @DimListFact +',' + CHAR(13) +  	 /*Dynamic SQL Dimensions*/
+						  @AttributeListSelect  + CHAR(13) + /*Dynamic SQL for Attributes*/
+						' CAST(SUM(CalcValue1) as Numeric(28,16)) ,' + CHAR(13) +
+						' CAST(SUM(CalcValue2) as Numeric(28,16)),' + CHAR(13) +
+						' GETDATE(), ' + CHAR(13) +
+						' suser_sname(), ' + CHAR(13) +
+						' GETDATE(), ' + CHAR(13) +
+						' suser_sname(), '+ CHAR(13) +
+						  @RuleID  + CHAR(13) +
+
+				' FROM #CurrencyStaging (NOLOCK)' + CHAR(13) +
+				' GROUP BY Scenario, FYPeriod, Category, Entity,Account,CurrencyDest,' + @DimListFact  + CHAR(13) +
+
+				' DROP TABLE #CurrencyStaging '
+	
+	/*
+	 --Print results debug using select to avoid text cut-off
+       SELECT  @SQL
+	*/
+	EXEC sp_executesql @SQL   --Execute SQL
+ /****************************************************END CURRENCY TRANSLATION*/
+
+	 -- Print results debug
+         --PRINT    @vScenario +','+ @vEntity +','+ @vCurrencyDest +','+ @vCategory +','+  @vPeriod
+
+			 FETCH NEXT FROM varList INTO @vEntity,@vScenario,@vCategory,@vCurrencyDest,@vPeriod
+			 END
+		CLOSE varList
+		DEALLOCATE varList
+
+	END
+
+	
