@@ -1,0 +1,54 @@
+DECLARE @CYYear int
+DECLARE @CalendarEndPeriod int
+DECLARE @Entity nvarchar(50) = 'BN_GWCS' --'@CurrentEntity'
+DECLARE @Offset int = 1 --'@OBACYYearOffset'
+SET @CYYear = (SELECT FLOOR(MIN(CYPeriod)/100) FROM f_Trans_GL_PeriodSum)
+SET @CalendarEndPeriod = 12
+
+TRUNCATE TABLE f_Trans_GL_Staging
+
+WHILE @CYYear < = YEAR(GETDATE())-1
+	BEGIN
+		INSERT INTO f_Trans_GL_Staging
+			(
+			Account
+			,Dim0
+			,Dim1
+			,Dim2
+			,Value1
+			,Entity
+			,Category
+			,Scenario
+			,TimePeriod
+			)
+		SELECT 
+			Account
+			,Dim0
+			,Dim1
+			,Dim2
+			,Value1
+			,Entity = @Entity
+			,Category = CAST('MAIN' as nvarchar(4)) 
+			,Scenario = CAST('OBA' as nvarchar(4))
+			,TimePeriod = (@CYYear + @Offset)*10000 + 101
+		FROM 
+
+		(
+			SELECT
+			Account
+			,Dim0
+			,Dim1
+			,Dim2
+			,SUM(Value1) AS Value1
+			FROM f_Trans_GL_PeriodSum
+			WHERE CYPeriod <= @CYYear*100 + @CalendarEndPeriod
+			GROUP BY
+			Account
+			,Dim0
+			,Dim1
+			,Dim2
+		) a 
+		
+		SET @CYYear = @CYYear + 1
+
+	END
