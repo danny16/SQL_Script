@@ -1,0 +1,4 @@
+DECLARE @MyList varchar(4000)    
+SELECT @MyList = COALESCE(@MyList + ', ', '') + '''' + rtrim(CAST(a.Alias AS varchar(30))) + ''''  
+FROM (SELECT Distinct Alias FROM [dbo].[d_Entity] Where alias is not null and LEN(alias) <> 0) a    
+SELECT rtrim(@MyList)  
