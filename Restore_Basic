@@ -1,0 +1,9 @@
+--Restore a database that is not existing in SQL Server from a backup 
+
+RESTORE DATABASE [BI360DW_CorpDemo_46] 
+FROM  DISK = N'D:\DB\Backup\BI360DW_Demo.bak' WITH  FILE = 1,  
+MOVE N'BI360DW_CORPDEMONEW' TO N'D:\DB\DATA\BI360DW_CorpDemo_46.mdf',  
+MOVE N'BI360DW_CORPDEMONEW_log' TO N'D:\DB\LOG\BI360DW_CorpDemo_46_1.LDF',  
+NOUNLOAD,  STATS = 5
+
+GO
