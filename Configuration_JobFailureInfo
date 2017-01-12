@@ -1,0 +1,20 @@
+Here is the script I cobbled together to help with my morning SQL Agent job failure triage task:
+
+DECLARE @OneDayAgo INT = CONVERT(INT,DATEADD(dd,-1,getdate()),112);
+SELECT   j.name,  
+         s.step_name,  
+         h.step_id,  
+         h.step_name,  
+         CONVERT(date,cast(h.run_date as varchar(8)),111) run_date,  
+               STUFF(STUFF(RIGHT(CAST(h.run_time + 1000000 as varchar(8)),6),3,0,':'),6,0,':') AS run_time,
+         h.message,   
+         h.server  
+FROM     msdb.dbo.sysjobhistory h  
+         INNER JOIN msdb.dbo.sysjobs j  
+         ON h.job_id = j.job_id  
+         INNER JOIN msdb.dbo.sysjobsteps s  
+         ON j.job_id = s.job_id 
+         AND h.step_id = s.step_id  
+WHERE    h.run_status = 0  -- did the job fail
+         AND h.run_date > @OneDayAgo 
+ORDER BY h.instance_id DESC;  
