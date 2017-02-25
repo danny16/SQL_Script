@@ -1,5 +1,5 @@
-DECLARE @attribute nvarchar(20) = 'c_IncoiceDate'
-,@module nvarchar(20) = 'AP'
+DECLARE @attribute nvarchar(100) = 'c_TransactionDescription'
+,@module nvarchar(20) = 'GL'
 ,@sql varchar(MAX)
 
 SET @sql = 
@@ -16,9 +16,11 @@ AND Field = @attribute;
 
 SELECT TOP 1 * FROM f_Trans_' + @module +';
 
-SELECT * FROM ModuleAttribute
-WHERE Module = @module'
+SELECT name FROM sys.all_columns WHERE object_id = (SELECT object_id FROM sys.Tables WHERE name = ''f_Trans_'+ @module+''') ORDER BY 1;
 
-PRINT @sql
+SELECT * FROM ModuleAttribute
+WHERE Module = @module AND Field = @attribute'
+
+--PRINT @sql
 
 EXEC (@sql)
