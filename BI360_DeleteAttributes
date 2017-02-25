@@ -1,0 +1,24 @@
+DECLARE @attribute nvarchar(20) = 'c_IncoiceDate'
+,@module nvarchar(20) = 'AP'
+,@sql varchar(MAX)
+
+SET @sql = 
+'DECLARE @attribute nvarchar(20) = '''+@attribute+'''
+,@module nvarchar(20) = '''+@module+'''
+
+IF EXISTS(SELECT * FROM sys.all_columns WHERE object_id = (SELECT object_id FROM sys.Tables WHERE name = ''f_Trans_'+ @module+''') AND name = '''+@attribute+''')
+ALTER TABLE f_Trans_'+ @module+'
+DROP COLUMN '+@attribute+';
+
+DELETE FROM ModuleAttribute
+WHERE Module = @module
+AND Field = @attribute;
+
+SELECT TOP 1 * FROM f_Trans_' + @module +';
+
+SELECT * FROM ModuleAttribute
+WHERE Module = @module'
+
+PRINT @sql
+
+EXEC (@sql)
