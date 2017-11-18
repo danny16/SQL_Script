@@ -1,0 +1,160 @@
+USE [DYNAMICS]
+GO
+/****** Object:  StoredProcedure [dbo].[sp_AccountDetail_BI360]    Script Date: 11/18/2017 8:47:22 AM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+ALTER PROCEDURE [dbo].[sp_AccountDetail_BI360]
+AS
+-- ====================================================================
+-- Created By:	Danny Zhang
+-- Created On:	11/18/2017
+-- Description:	Dynamically create view DYNAMICS.dbo.v_AcctDetails_BI360 to pick up new GP companies.
+-- ====================================================================
+
+IF OBJECT_ID('dbo.v_AcctDetails_BI360') IS NOT NULL
+DROP VIEW dbo.v_AcctDetails_BI360;
+
+IF 1=1
+BEGIN
+
+	DECLARE @coid VARCHAR(10)
+	DECLARE @sql VARCHAR(MAX)
+	DECLARE @seq INT
+	DECLARE @company TABLE(seq int, company varchar(20))
+
+	SET @seq = 1
+	SET @sql = '
+CREATE VIEW dbo.v_AcctDetails_BI360([GP_CO_ID]
+      ,[CoID]
+      ,[JRNENTRY]
+      ,[Series]
+      ,[TRXDATE]
+      ,[ORPSTDDT]
+      ,[AcctNo]
+      ,[NatAcctDesc]
+      ,[NatAcctID]
+      ,[BusUnit]
+      ,[BusUnitID]
+      ,[Location]
+      ,[LocID]
+      ,[Departments]
+      ,[DeptID]
+      ,[Program]
+      ,[ProgramID]
+      ,[Ref]
+      ,[Desr]
+      ,[Amt]
+      ,[OrdNo]
+      ,[OrMstrID]
+      ,[OrMstrNam]
+      ,[VoucherNum]
+      ,[Svc_Period]
+      ,[Who])
+AS
+-- ====================================================================
+-- Created By:	Danny Zhang
+-- Created On:	11/18/2017
+-- Modified By:		
+-- Modified On:		
+-- Description:	Dynamically create view DYNAMICS.dbo.v_AcctDetails_BI360 to pick up new GP companies.
+-- ====================================================================
+
+	--************** COMPANY **************  *** CURRENT TRANSACTIONS (GL20000)
+	SELECT          (SELECT CMPANYID FROM SY01500 WHERE INTERID = ''UCI'') as GP_CO_ID,  ''UCI'' AS CoID , g.JRNENTRY 
+		 , RTrim(RTrim(UCI.dbo.DYN_FUNC_Series_GL_Trx(SERIES))) AS Series
+							  , g.TRXDATE,  g.ORPSTDDT                                 , RTrim(a.ACTNUMST)   AS AcctNo     , RTrim(d.DSCRIPTN)   AS NatAcctDesc, d.SGMNTID AS NatAcctID 
+							  , ltrim(rtrim(e.DSCRIPTN)) AS BusUnit , e.SGMNTID AS BusUnitID, ltrim(rtrim(f.DSCRIPTN)) AS Location , f.SGMNTID AS LocID, ltrim(rtrim(i.DSCRIPTN)) AS Departments , i.SGMNTID AS DeptID, ltrim(rtrim(h.DSCRIPTN)) AS Program ,  h.SGMNTID AS ProgramID
+							  , RTrim(g.REFRENCE)               AS Ref      , RTrim(g.DSCRIPTN)   AS Desr
+							  , g.DEBITAMT - g.CRDTAMNT         AS Amt      , RTrim(g.ORDOCNUM)   AS OrdNo
+							  , RTrim(g.ORMSTRID)               AS OrMstrID , RTrim(g.ORMSTRNM)   AS OrMstrNam
+							   ,g.ORCTRNUM as VoucherNum
+							  ,p.SHIPMTHD as Svc_Period
+							  , RTrim(g.USWHPSTD)               AS Who
+	  FROM             UCI.dbo.GL20000 g 
+	  INNER JOIN       UCI.dbo.GL00105 a ON g.ACTINDX    = a.ACTINDX
+	  INNER JOIN       UCI.dbo.GL40200 d ON a.ACTNUMBR_1 = d.SGMNTID and d.SGMTNUMB = 1
+	  inner join	   UCI..GL40200 AS e ON a.ACTNUMBR_2 = e.SGMNTID and e.SGMTNUMB = 2
+	  inner join       UCI..GL40200 AS f ON a.ACTNUMBR_3 = f.SGMNTID and f.SGMTNUMB = 3
+	  inner join       UCI..GL40200 AS i ON a.ACTNUMBR_4 = i.SGMNTID and i.SGMTNUMB = 4
+	  inner join       UCI..GL40200 AS h ON a.ACTNUMBR_5 = h.SGMNTID and h.SGMTNUMB = 5
+	  left join    (select VCHRNMBR,DOCNUMBR,VENDORID,SHIPMTHD from UCI.dbo.PM20000 union select VCHRNMBR,DOCNUMBR,VENDORID,SHIPMTHD from UCI.dbo.PM30200) P on P.VCHRNMBR=g.ORCTRNUM and P.VENDORID=g.ORMSTRID and P.DOCNUMBR=g.ORDOCNUM
+	  WHERE                            g.SOURCDOC <> ''BBF''  -- exclude Balance Brought Forward trans, which summarize trans now coming from history GL30000
+	--                                       *** HISTORY TRANSACTIONS (GL30000)
+	UNION ALL
+	SELECT          (SELECT CMPANYID FROM SY01500 WHERE INTERID = ''UCI'') as GP_CO_ID,  ''UCI'' AS CoID , g.JRNENTRY 
+		 , RTrim(RTrim(UCI.dbo.DYN_FUNC_Series_GL_Trx(SERIES))) AS Series
+							  , g.TRXDATE, g.ORPSTDDT                                     , RTrim(a.ACTNUMST)   AS AcctNo     , RTrim(d.DSCRIPTN)   AS NatAcctDesc, d.SGMNTID AS NatAcctID 
+							  , ltrim(rtrim(e.DSCRIPTN)) AS BusUnit , e.SGMNTID AS BusUnitID, ltrim(rtrim(f.DSCRIPTN)) AS Location , f.SGMNTID AS LocID, ltrim(rtrim(i.DSCRIPTN)) AS Departments , i.SGMNTID AS DeptID, ltrim(rtrim(h.DSCRIPTN)) AS Program ,  h.SGMNTID AS ProgramID
+							  , RTrim(g.REFRENCE)               AS Ref      , RTrim(g.DSCRIPTN)   AS Desr
+							  , g.DEBITAMT - g.CRDTAMNT         AS Amt      , RTrim(g.ORDOCNUM)   AS OrdNo
+							  , RTrim(g.ORMSTRID)               AS OrMstrID , RTrim(g.ORMSTRNM)   AS OrMstrNam
+							   ,g.ORCTRNUM as VoucherNum
+							  ,p.SHIPMTHD as Svc_Period
+							  , RTrim(g.USWHPSTD)               AS Who
+	  FROM             UCI.dbo.GL30000 g 
+	  INNER JOIN       UCI.dbo.GL00105 a ON g.ACTINDX    = a.ACTINDX
+	  INNER JOIN       UCI.dbo.GL40200 d ON a.ACTNUMBR_1 = d.SGMNTID and d.SGMTNUMB = 1
+	  inner join	   UCI..GL40200 AS e ON a.ACTNUMBR_2 = e.SGMNTID and e.SGMTNUMB = 2
+	  inner join       UCI..GL40200 AS f ON a.ACTNUMBR_3 = f.SGMNTID and f.SGMTNUMB = 3
+	  inner join       UCI..GL40200 AS i ON a.ACTNUMBR_4 = i.SGMNTID and i.SGMTNUMB = 4
+	  inner join       UCI..GL40200 AS h ON a.ACTNUMBR_5 = h.SGMNTID and h.SGMTNUMB = 5
+	  left join    (select VCHRNMBR,DOCNUMBR,VENDORID,SHIPMTHD from UCI.dbo.PM20000 union select VCHRNMBR,DOCNUMBR,VENDORID,SHIPMTHD from UCI.dbo.PM30200) P on P.VCHRNMBR=g.ORCTRNUM and P.VENDORID=g.ORMSTRID and P.DOCNUMBR=g.ORDOCNUM'
+
+	INSERT INTO @company
+	SELECT ROW_NUMBER() OVER(ORDER BY INTERID) as seq, RTRIM(LTRIM(INTERID)) as company FROM SY01500 WHERE CMPANYID>0 AND LEFT(INTERID,1) <> 'T' AND INTERID <> 'UCI'
+
+	WHILE @seq <= (SELECT MAX(seq) FROM @company)
+	BEGIN
+		SET @coid = (SELECT company FROM @company WHERE seq = @seq)
+		SET @sql = @sql + '
+		--************** COMPANY **************  *** CURRENT TRANSACTIONS (GL20000)
+	UNION ALL
+	SELECT          (SELECT CMPANYID FROM SY01500 WHERE INTERID = '''+@coid+''') as GP_CO_ID,  '''+@coid+''' AS CoID , g.JRNENTRY 
+		 , RTrim(RTrim('+@coid+'.dbo.DYN_FUNC_Series_GL_Trx(SERIES))) AS Series
+							  , g.TRXDATE,  g.ORPSTDDT                                 , RTrim(a.ACTNUMST)   AS AcctNo     , RTrim(d.DSCRIPTN)   AS NatAcctDesc, d.SGMNTID AS NatAcctID 
+							  , ltrim(rtrim(e.DSCRIPTN)) AS BusUnit , e.SGMNTID AS BusUnitID, ltrim(rtrim(f.DSCRIPTN)) AS Location , f.SGMNTID AS LocID, ltrim(rtrim(i.DSCRIPTN)) AS Departments , i.SGMNTID AS DeptID, ltrim(rtrim(h.DSCRIPTN)) AS Program ,  h.SGMNTID AS ProgramID
+							  , RTrim(g.REFRENCE)               AS Ref      , RTrim(g.DSCRIPTN)   AS Desr
+							  , g.DEBITAMT - g.CRDTAMNT         AS Amt      , RTrim(g.ORDOCNUM)   AS OrdNo
+							  , RTrim(g.ORMSTRID)               AS OrMstrID , RTrim(g.ORMSTRNM)   AS OrMstrNam
+							   ,g.ORCTRNUM as VoucherNum
+							  ,p.SHIPMTHD as Svc_Period
+							  , RTrim(g.USWHPSTD)               AS Who
+	  FROM             '+@coid+'.dbo.GL20000 g 
+	  INNER JOIN       '+@coid+'.dbo.GL00105 a ON g.ACTINDX    = a.ACTINDX
+	  INNER JOIN       '+@coid+'.dbo.GL40200 d ON a.ACTNUMBR_1 = d.SGMNTID and d.SGMTNUMB = 1
+	  inner join	   '+@coid+'..GL40200 AS e ON a.ACTNUMBR_2 = e.SGMNTID and e.SGMTNUMB = 2
+	  inner join       '+@coid+'..GL40200 AS f ON a.ACTNUMBR_3 = f.SGMNTID and f.SGMTNUMB = 3
+	  inner join       '+@coid+'..GL40200 AS i ON a.ACTNUMBR_4 = i.SGMNTID and i.SGMTNUMB = 4
+	  inner join       '+@coid+'..GL40200 AS h ON a.ACTNUMBR_5 = h.SGMNTID and h.SGMTNUMB = 5
+	  left join    (select VCHRNMBR,DOCNUMBR,VENDORID,SHIPMTHD from '+@coid+'.dbo.PM20000 union select VCHRNMBR,DOCNUMBR,VENDORID,SHIPMTHD from '+@coid+'.dbo.PM30200) P on P.VCHRNMBR=g.ORCTRNUM and P.VENDORID=g.ORMSTRID and P.DOCNUMBR=g.ORDOCNUM
+	  WHERE                            g.SOURCDOC <> ''BBF''  -- exclude Balance Brought Forward trans, which summarize trans now coming from history GL30000
+	--                                       *** HISTORY TRANSACTIONS (GL30000)
+	UNION ALL
+	SELECT          (SELECT CMPANYID FROM SY01500 WHERE INTERID = '''+@coid+''') as GP_CO_ID,  '''+@coid+''' AS CoID , g.JRNENTRY 
+		 , RTrim(RTrim('+@coid+'.dbo.DYN_FUNC_Series_GL_Trx(SERIES))) AS Series
+							  , g.TRXDATE, g.ORPSTDDT                                     , RTrim(a.ACTNUMST)   AS AcctNo     , RTrim(d.DSCRIPTN)   AS NatAcctDesc, d.SGMNTID AS NatAcctID 
+							  , ltrim(rtrim(e.DSCRIPTN)) AS BusUnit , e.SGMNTID AS BusUnitID, ltrim(rtrim(f.DSCRIPTN)) AS Location , f.SGMNTID AS LocID, ltrim(rtrim(i.DSCRIPTN)) AS Departments , i.SGMNTID AS DeptID, ltrim(rtrim(h.DSCRIPTN)) AS Program ,  h.SGMNTID AS ProgramID
+							  , RTrim(g.REFRENCE)               AS Ref      , RTrim(g.DSCRIPTN)   AS Desr
+							  , g.DEBITAMT - g.CRDTAMNT         AS Amt      , RTrim(g.ORDOCNUM)   AS OrdNo
+							  , RTrim(g.ORMSTRID)               AS OrMstrID , RTrim(g.ORMSTRNM)   AS OrMstrNam
+							   ,g.ORCTRNUM as VoucherNum
+							  ,p.SHIPMTHD as Svc_Period
+							  , RTrim(g.USWHPSTD)               AS Who
+	  FROM             '+@coid+'.dbo.GL30000 g 
+	  INNER JOIN       '+@coid+'.dbo.GL00105 a ON g.ACTINDX    = a.ACTINDX
+	  INNER JOIN       '+@coid+'.dbo.GL40200 d ON a.ACTNUMBR_1 = d.SGMNTID and d.SGMTNUMB = 1
+	  inner join	   '+@coid+'..GL40200 AS e ON a.ACTNUMBR_2 = e.SGMNTID and e.SGMTNUMB = 2
+	  inner join       '+@coid+'..GL40200 AS f ON a.ACTNUMBR_3 = f.SGMNTID and f.SGMTNUMB = 3
+	  inner join       '+@coid+'..GL40200 AS i ON a.ACTNUMBR_4 = i.SGMNTID and i.SGMTNUMB = 4
+	  inner join       '+@coid+'..GL40200 AS h ON a.ACTNUMBR_5 = h.SGMNTID and h.SGMTNUMB = 5
+	  left join    (select VCHRNMBR,DOCNUMBR,VENDORID,SHIPMTHD from '+@coid+'.dbo.PM20000 union select VCHRNMBR,DOCNUMBR,VENDORID,SHIPMTHD from '+@coid+'.dbo.PM30200) P on P.VCHRNMBR=g.ORCTRNUM and P.VENDORID=g.ORMSTRID and P.DOCNUMBR=g.ORDOCNUM'
+
+		SET @seq = @seq + 1
+
+	END
+
+	EXEC (@sql);
+END
