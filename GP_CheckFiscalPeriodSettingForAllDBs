@@ -1,0 +1,33 @@
+DECLARE @company TABLE(id int, db varchar(50))
+DECLARE @id int = 1
+DECLARE @db varchar(20)
+DECLARE @sql varchar(max)
+DECLARE @periodid varchar(2) = 2
+DECLARE @fiscalyear varchar(4) = 2017
+SET @sql = '
+SELECT 
+''AMGLA'' as Company, YEAR1, PERIODID, PERNAME, PERIODDT, PERDENDT 
+FROM AMGLA.dbo.SY40100 where series = 0
+AND YEAR1 = '+@fiscalyear+'
+AND PERIODID = '+@periodid+''
+ 
+INSERT INTO @company(id, db)
+SELECT ROW_NUMBER() OVER(ORDER BY INTERID) as id, INTERID as db FROM DYNAMICS.dbo.SY01500 WHERE CMPNYNAM NOT LIKE '%Test%' AND INTERID <> 'AMGLA'
+
+WHILE @id < (SELECT MAX(id) FROM @company)
+BEGIN
+	SET @db = (SELECT db FROM @company WHERE id=@id)
+	SET @sql = @sql + '
+UNION ALL
+	SELECT 
+'''+@db+''' as Company, YEAR1, PERIODID, PERNAME, PERIODDT, PERDENDT 
+FROM '+@db+'.dbo.SY40100 where series = 0
+AND YEAR1 = '+@fiscalyear+'
+AND PERIODID = '+@periodid+'
+'
+	SET @id = @id + 1
+END
+
+SET @sql = @sql + ' order by PERIODDT, PERDENDT'
+
+EXEC (@sql)
