@@ -1,0 +1,70 @@
+DECLARE @CYYear int
+DECLARE @CalendarEndPeriod int
+DECLARE @Entity nvarchar(50) = 'TUFCU' --'@CurrentEntity'
+DECLARE @Offset int = 1 --'@OBACYYearOffset'
+SET @CYYear = 2012
+SET @CalendarEndPeriod = 12
+
+DELETE FROM f_Trans_GL WHERE CreatedBy = 'SSIS' AND Scenario = (SELECT MemberId FROM d_Scenario WHERE Code = 'OBA') AND TimePeriod >= 20130101;
+
+WHILE @CYYear < = YEAR(GETDATE())-1
+	BEGIN
+		INSERT INTO f_Trans_GL
+			(
+			Account
+			,Dim0
+			,Dim1
+			,Dim2
+			,Dim3
+			,Dim4
+			,Value1
+			,Entity
+			,Scenario
+			,TimePeriod			
+			,CreatedBy
+			,UpdatedBy
+			,CreatedOn
+			,UpdatedOn
+			)
+		SELECT 
+			Account
+			,Dim0
+			,Dim1
+			,Dim2
+			,Dim3
+			,Dim4
+			,Value1
+			,Entity = (SELECT MemberId FROM d_Entity WHERE Code = @Entity)
+			,Scenario = (SELECT MemberId FROM d_Scenario WHERE Code = 'OBA')
+			,TimePeriod = (@CYYear + @Offset)*10000 + 101
+			,CreatedBy = CAST('SSIS' as nvarchar(50))
+			,UpdatedBy = CAST('SSIS' as nvarchar(50))
+			,CreatedOn = GETDATE()
+			,UpdatedOn = GETDATE()
+		FROM 
+
+		(
+			SELECT
+			Account
+			,Dim0
+			,Dim1
+			,Dim2
+			,Dim3
+			,Dim4
+			,SUM(Value1) AS Value1
+			,FLOOR(TimePeriod/10000) as FYYear
+			FROM f_Trans_GL
+			WHERE Scenario IN (SELECT MemberId FROM d_Scenario WHERE Code IN ('ACT','OBA')) AND FLOOR(TimePeriod/10000)= @CYYear
+			GROUP BY
+			Account
+			,Dim0
+			,Dim1
+			,Dim2
+			,Dim3
+			,Dim4
+			,FLOOR(TimePeriod/10000)
+		) a 
+		
+		SET @CYYear = @CYYear + 1
+
+	END
