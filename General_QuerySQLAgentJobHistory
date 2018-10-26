@@ -1,0 +1,51 @@
+-- create a temporary table of instances when a job was initiated
+declare @JOBS table
+(
+    RUN_INSTANCE uniqueidentifier, 
+    job_id uniqueidentifier,
+    name sysname,
+    run_status int, 
+    run_date int, 
+    run_time int, 
+    run_duration int
+);
+
+-- insert one record for each instanced job and assign it a unique identifier
+insert into @JOBS
+    select 
+        RUN_INSTANCE = NewID(), 
+        h.job_id, 
+        j.name, 
+        h.run_status, 
+        h.run_date, 
+        h.run_time, 
+        h.run_duration
+    from msdb.dbo.sysjobhistory h
+        join msdb.dbo.sysjobs j on j.job_id = h.job_id
+    where step_id = 0
+
+-- query the jobs history
+select 
+    h.server,
+    j.RUN_INSTANCE, 
+    j.name, 
+    h.step_id, 
+    h.run_date, 
+    h.run_time, 
+    run_status = 
+        case h.run_status
+            when 0 then 'failed'
+            when 1 then 'succeeded'
+            when 2 then 'retry'
+            when 3 then 'canceled'
+            when 4 then 'in progress'
+            else '???'
+        end,
+    h.message
+from @JOBS j
+    join msdb.dbo.sysjobhistory h on 
+        h.job_id = j.job_id
+        and convert(varchar(20),h.run_date) + convert(varchar(20),h.run_time) 
+           between convert(varchar(20),j.run_date) + convert(varchar(20),j.run_time) 
+           and convert(varchar(20),j.run_date) + convert(varchar(20),j.run_time + j.run_duration) 
+order by j.RUN_INSTANCE, h.step_id  
