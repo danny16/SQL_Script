@@ -1,0 +1,13 @@
+SELECT a.*
+--step_name, run_date,[message],
+--* 
+FROM MSDB.dbo.sysjobhistory a
+JOIN MSDB.dbo.sysjobs b ON a.job_id = b.job_id
+WHERE b.name = 'BI360'
+--DA606B63-857D-4EAB-BED4-ADACE05D0A43
+--F38B722D-D1EB-42B6-9F36-B1DE4E174F6D
+--E4A8864C-5206-4E4C-ACEA-FB4CB21553DB
+--[message] LIKE '%error%'
+--AND run_status = 4
+AND a.run_date = (SELECT MAX(run_date) FROM MSDB.dbo.sysjobhistory)
+ORDER BY a.step_id
