@@ -1,0 +1,72 @@
+DECLARE @CYYear int
+DECLARE @CalendarEndPeriod int
+DECLARE @Offset int = 1 --OBA CYYear Offset
+SET @CYYear = 2015
+SET @CalendarEndPeriod = 12
+
+DELETE FROM f_Trans_GL WHERE CreatedBy = 'OBAByCalculation' AND Scenario = (SELECT MemberId FROM d_Scenario WHERE Code = 'OBA');
+
+WHILE @CYYear < = YEAR(GETDATE())-1
+	BEGIN
+			SELECT
+			Account
+			,Dim0
+			,Dim1
+			,Dim2
+			,Entity
+			,Category
+			,Value1 = SUM(Value1)
+			,FLOOR(TimePeriod/10000) as FYYear
+			INTO #OBAStaging
+			FROM f_Trans_GL a JOIN d_Account b ON a.Account = b.MemberId
+			WHERE Scenario IN (SELECT MemberId FROM d_Scenario WHERE Code IN ('ACT','OBA')) 
+			AND FLOOR(TimePeriod/10000)= @CYYear
+			AND b.AccountType = 'BLC'
+			AND a.Category = (SELECT MemberId FROM d_Category WHERE Code = 'MAIN')
+			GROUP BY
+			Account
+			,Entity
+			,Category
+			,Dim0
+			,Dim1
+			,Dim2
+			,FLOOR(TimePeriod/10000)
+
+
+		INSERT INTO f_Trans_GL
+			(
+			Account
+			,Dim0
+			,Dim1
+			,Dim2
+			,Value1
+			,Entity
+			,Category
+			,Scenario
+			,TimePeriod			
+			,CreatedBy
+			,UpdatedBy
+			,CreatedOn
+			,UpdatedOn
+			)
+		SELECT 
+			Account
+			,Dim0
+			,Dim1
+			,Dim2
+			,Value1
+			,Entity
+			,Category
+			,Scenario = (SELECT MemberId FROM d_Scenario WHERE Code = 'OBA')
+			,TimePeriod = (@CYYear + @Offset)*10000 + 101
+			,CreatedBy = CAST('OBAByCalculation' as nvarchar(50))
+			,UpdatedBy = CAST('OBAByCalculation' as nvarchar(50))
+			,CreatedOn = GETDATE()
+			,UpdatedOn = GETDATE()
+		FROM #OBAStaging a; 
+
+		TRUNCATE TABLE #OBAStaging
+		
+		SET @CYYear = @CYYear + 1
+
+	END
