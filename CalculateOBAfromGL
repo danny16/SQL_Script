@@ -1,0 +1,69 @@
+DECLARE @EndFYYear int
+			DECLARE @FYYear int
+			
+			SET @EndFYYear = (SELECT FYYear FROM d_Time WHERE MemberId = YEAR(GETDATE())*10000 + MONTH(GETDATE())*100 + DAY(GETDATE())) 
+			SET @FYYear = (SELECT FYYear FROM d_Time WHERE MemberId =(SELECT MIN(TimePeriod) FROM f_Trans_GL WHERE Scenario = (SELECT MemberId FROM d_Scenario WHERE Code = 'ACT')))
+
+			DELETE FROM f_Trans_GL WHERE CreatedBy IN ('SSIS') AND Scenario = (SELECT MemberId FROM d_Scenario WHERE Code = 'OBA');
+
+			WHILE @FYYear <= @EndFYYear
+			BEGIN
+
+					SELECT 
+						Account
+						,Dim0
+						,Dim1
+						,Dim2
+						,Dim3
+						,a.Entity
+						,Category
+						,Scenario
+						,FiscalYear = @FYYear
+						,SUM(a.Value1) as Value1				
+					INTO #OBAStaging
+					FROM f_Trans_GL a 
+					JOIN d_Account b ON a.Account = b.MemberId
+					JOIN d_Time t ON t.MemberId = a.TimePeriod
+					WHERE Scenario IN (SELECT MemberId FROM d_Scenario WHERE Code IN ('ACT')) 
+						AND t.FYYear <= @FYYear
+						AND a.Account IN (SELECT MemberId FROM d_Account WHERE c_BalanceSheetAccount = 'Y')
+						AND a.Category = (SELECT MemberId FROM d_Category WHERE Code = 'MAIN')
+					GROUP BY Account,Dim0 ,Dim1,Dim2,Dim3,a.Entity,Scenario,Category
+
+					INSERT INTO f_Trans_GL
+						(
+						Account
+						,Dim0
+						,Dim1
+						,Dim2
+						,Dim3
+						,Value1
+						,Entity
+						,Category
+						,Scenario
+						,TimePeriod			
+						,CreatedBy
+						,UpdatedBy
+						,CreatedOn
+						,UpdatedOn
+						)
+					SELECT 
+						Account
+						,Dim0
+						,Dim1
+						,Dim2
+						,Dim3
+						,Value1 						
+						,Entity
+						,Category
+						,Scenario = (SELECT MemberId FROM d_Scenario WHERE Code = 'OBA')
+						,TimePeriod = (SELECT MIN(MemberId) FROM d_Time WHERE FYYear = (@FYYear + 1))
+						,CreatedBy = CAST('SSIS' as nvarchar(50))
+						,UpdatedBy = CAST('SSIS' as nvarchar(50))
+						,CreatedOn = GETDATE()
+						,UpdatedOn = GETDATE()
+					FROM #OBAStaging					;
+
+					SET @FYYear = @FYYear + 1
+					DROP TABLE #OBAStaging
+			END
